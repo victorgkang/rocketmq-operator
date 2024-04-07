@@ -175,16 +175,9 @@ func (r *ReconcileConsole) Reconcile(ctx context.Context, request reconcile.Requ
 	}
 
 	// update console if name server address changes
-	oldNamesrv := getOldNamesrvAddr(found)
+	oldNamesrv, i := getOldNamesrvAddr(found)
 	if oldNamesrv != "" && oldNamesrv != share.NameServersStr {
-		deleteIndex := -1
-		env := found.Spec.Template.Spec.Containers[0].Env
-		for i, env := range env {
-			if env.Name == "JAVA_OPTS" {
-				deleteIndex = i
-			}
-		}
-		found.Spec.Template.Spec.Containers[0].Env = append(env[:deleteIndex], env[deleteIndex+1:]...)
+		found.Spec.Template.Spec.Containers[0].Env[i].Value = fmt.Sprintf("-Drocketmq.namesrv.addr=%s -Dcom.rocketmq.sendMessageWithVIPChannel=false", share.NameServersStr)
 		err = r.client.Update(context.TODO(), found)
 		if err != nil {
 			reqLogger.Error(err, "Failed to update console deploy namesrv", "Namespace", found.Namespace, "Name", found.Name)
@@ -196,19 +189,19 @@ func (r *ReconcileConsole) Reconcile(ctx context.Context, request reconcile.Requ
 	return reconcile.Result{Requeue: true, RequeueAfter: time.Duration(cons.RequeueIntervalInSecond) * time.Second}, nil
 }
 
-func getOldNamesrvAddr(deploy *appsv1.Deployment) string {
-	for _, envVar := range deploy.Spec.Template.Spec.Containers[0].Env {
+func getOldNamesrvAddr(deploy *appsv1.Deployment) (string, int) {
+	for i, envVar := range deploy.Spec.Template.Spec.Containers[0].Env {
 		if envVar.Name == "JAVA_OPTS" {
 			re := regexp.MustCompile(`-Drocketmq.namesrv.addr=([^ ]+)`)
 			match := re.FindStringSubmatch(envVar.Value)
 			if len(match) > 1 {
-				return match[1]
+				return match[1], i
 			} else {
-				return ""
+				return "", -1
 			}
 		}
 	}
-	return ""
+	return "", -1
 }
 
 // newDeploymentForCR returns a deployment pod with modifying the ENV
